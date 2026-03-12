@@ -3,34 +3,14 @@ import datetime
 import json
 import os
 
-DATA_FILE = "recovery_data.json"
-
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r') as f:
-            data = json.load(f)
-            # Restoring streaks
-            st.session_state.streak = data.get('streak', 0)
-            # Restore last_checkin (converts string back to date)
-            last_str = data.get('last_checkin')
-            st.session_state.last_checkin = datetime.date.fromisoformat(last_str) if last_str else None
-            # Restores journal
-            st.session_state.journal = data.get('journal', [])
-
-    else:
-        # For first time - set to defaults
-        st.session_state.streak = 0
-        st.session_state.last_checkin = None
-        st.session_state.journal = []
-
-def save_data():
-    data = {
-        'streak' : st.session_state.streak,
-        'last_checkin' : st.session_state.last_checkin.isoformat() if st.session_state.last_checkin else None,
-        'journal' : st.session_state.journal
-    }
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f)
+if 'streak' not in st.session_state:
+    st.session_state.streak = 0
+if 'last_checkin' not in st.session_state:
+    st.session_state.last_checkin = None
+if 'journal' not in st.session_state:
+    st.session_state.journal = []
+if 'motivation' not in st.session_state:
+    st.session_state.motivation = 5
 
 st.set_page_config(
     page_title="Recovery",
@@ -38,10 +18,6 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed"
 )
-
-if 'data_loaded' not in st.session_state:
-    load_data()
-    st.session_state.data_loaded = True
 
 page = st.sidebar.radio(
     label="Menu",
@@ -60,7 +36,7 @@ st.markdown("""
 
 if page=="🏠 Home":
     st.title("Welcome to Recovery")
-    st.write("Track your sobriety, journel your thoughts, talk with others.")
+    st.write("Our mission is to...")
     st.metric("Current Streak", st.session_state.get('streak', 0), "days")
     st.session_state.motivation = st.slider("How motivated are you today?", 1, 10)
     st.write(f"Your motivation: {st.session_state.motivation}")
@@ -93,7 +69,7 @@ elif page=="✅ Daily Check-In":
                     # st.warning(f"Delta is above 1, delta = {delta}, today = {today}, last_checkin = {st.session_state.last_checkin}") this is for testing purposes.")
                     st.session_state.last_checkin = today
                     st.session_state.streak = 1
-        save_data()
+        
 
 
     st.write(f"Today: {datetime.date.today()}")
@@ -114,7 +90,6 @@ elif page=="📓 Journal":
                 "date": str(datetime.date.today()),
                 "text": entry
             })
-            save_data()
             st.success("Entry Saved!")
 
 
@@ -139,8 +114,28 @@ elif page=="📓 Journal":
                 button_label = "Show more"
 
             # Show the selected entries
-            for item in entries_to_show:
-                st.write(f"**{item['date']}**: {item['text']}")
+            for index, item in enumerate(entries_to_show):
+                col_text, col_edit, col_delete = st.columns([8, 1, 1])
+
+                with col_text:
+                    st.write(f"**{item['date']}**: {item['text']}")
+
+                with col_edit:
+                    if st.button("✏️", key=f"edit_{index}_{item.get('date', '')}", help="Edit this entry"):
+                        st.info("Edit feature coming soon...")
+
+                with col_delete:
+                    if st.button("🗑️", key=f"delete_{index}_{item.get('date', '')}", help="Delete this entry"):
+                        full_journal = st.session_state.journal
+
+                        if st.session_state.show_all_journal:
+                            real_index = index
+                        else:
+                            real_index = len(full_journal) - len(entries_to_show) + index
+                        
+                        del full_journal[real_index]
+                        st.success("Entry deleted.")
+                        st.rerun()  #refreshes the page instantly
 
             # The toggle button
             if st.button(button_label):
