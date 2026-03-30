@@ -1,8 +1,15 @@
 import streamlit as st # type: ignore
 import datetime
-import json
-import os
+from streamlit_javascript import st_javascript # type: ignore
 
+st.set_page_config(
+    page_title="Recovery",
+    page_icon="🥹",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
+
+# initialization
 if 'streak' not in st.session_state:
     st.session_state.streak = 0
 if 'last_checkin' not in st.session_state:
@@ -12,12 +19,21 @@ if 'journal' not in st.session_state:
 if 'motivation' not in st.session_state:
     st.session_state.motivation = 5
 
-st.set_page_config(
-    page_title="Recovery",
-    page_icon="🥹",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
+# Load from localStorage (this runs every refresh)
+saved_streak = st_javascript("localStorage.getItem('recovery_streak') || '0'")
+try:
+    st.session_state.streak = int(saved_streak)
+except (ValueError, TypeError):
+    st.session_state.streak = 0
+
+saved_last = st_javascript("localStorage.getItem('recovery_last_checkin')")
+if saved_last and saved_last != "null":
+    try:
+        st.session_state.last_checkin = datetime.date.fromisoformat(saved_last)
+    except ValueError:
+        st.session_state.last_checkin = None
+else:
+    st.session_state.last_checkin = None
 
 page = st.sidebar.radio(
     label="Menu",
@@ -49,26 +65,35 @@ elif page=="✅ Daily Check-In":
 
     st.header("Daily Check-In") #subheader
 
-    if st.button("Check In Today"):
-        today = datetime.date.today() # for testing: datetime.date(2025, 10, 1), for real: datetime.date.today()
-        if st.session_state.last_checkin == today:
-            st.warning("You have already checked in today")
+if st.button("Check In Today"):
+    today = datetime.date.today()
+    
+    if st.session_state.last_checkin == today:
+        st.warning("You have already checked in today")
+    else:
+        if st.session_state.last_checkin is None:
+            st.success("You have started a new streak!")
+            st.session_state.streak += 1
+            st.session_state.last_checkin = today
         else:
-            if st.session_state.last_checkin is None:
-                st.success("You have strated a new streak!")
-                st.session_state.last_checkin = today
+            delta = today - st.session_state.last_checkin
+            if delta.days == 1:
+                st.success("You've added another day!")
                 st.session_state.streak += 1
+                st.session_state.last_checkin = today
             else:
-                delta = today - st.session_state.last_checkin
-                if delta.days == 1:
-                    st.success("You've added another day!")
-                    st.session_state.last_checkin = today
-                    st.session_state.streak += 1
-                else:
-                    st.warning(f"You have missed {delta.days - 1} day(s). Streak is reset to 1. Don't worry, we are here on this journey with you!")
-                    # st.warning(f"Delta is above 1, delta = {delta}, today = {today}, last_checkin = {st.session_state.last_checkin}") this is for testing purposes.")
-                    st.session_state.last_checkin = today
-                    st.session_state.streak = 1
+                st.warning(f"You have missed {delta.days - 1} day(s). Streak is reset to 1.")
+                st.session_state.streak = 1
+                st.session_state.last_checkin = today
+        
+        # === SAVE TO LOCALSTORAGE ===
+        st_javascript(f"localStorage.setItem('recovery_streak', '{st.session_state.streak}')")
+        if st.session_state.last_checkin is not None:
+            st_javascript(f"localStorage.setItem('recovery_last_checkin', '{st.session_state.last_checkin.isoformat()}')")
+        else:
+            st_javascript("localStorage.removeItem('recovery_last_checkin')")
+    
+    st.metric("Current Streak", st.session_state.streak, "days")
         
 
 
@@ -154,3 +179,4 @@ elif page=="🆘 Resources":
 
 elif page=="⚙️ Settings":
     st.write("Settings will go here.")
+
