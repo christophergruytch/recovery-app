@@ -1,6 +1,7 @@
 import streamlit as st # type: ignore
 import datetime
 from streamlit_javascript import st_javascript # type: ignore
+import json
 
 st.set_page_config(
     page_title="Recovery",
@@ -19,7 +20,7 @@ if 'journal' not in st.session_state:
 if 'motivation' not in st.session_state:
     st.session_state.motivation = 5
 
-# Load from localStorage (this runs every refresh)
+# Load streak and last_checkin from localStorage (this already works)
 saved_streak = st_javascript("localStorage.getItem('recovery_streak') || '0'")
 try:
     st.session_state.streak = int(saved_streak)
@@ -35,10 +36,11 @@ if saved_last and saved_last != "null":
 else:
     st.session_state.last_checkin = None
 
+
 page = st.sidebar.radio(
     label="Menu",
     options=["🏠 Home", "✅ Daily Check-In", "📓 Journal", "🎙️ Let's All Talk", "📊 Progress", "🆘 Resources", "⚙️ Settings"],
-    index=0,     # starts at Home
+    index=0,
     key="nav_menu"
 )
 
@@ -50,133 +52,139 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-if page=="🏠 Home":
+def save_journal():
+    """Save journal list to localStorage"""
+    if 'journal' not in st.session_state:
+        return
+    journal_json = json.dumps(st.session_state.journal, ensure_ascii=False)
+    js_code = f'''
+        try {{
+            localStorage.setItem("recovery_journal", JSON.stringify({json.dumps(journal_json)}));
+            console.log("✅ Journal saved! Entries:", {len(st.session_state.journal)});
+        }} catch (e) {{
+            console.error("Save failed:", e);
+        }}
+    '''
+    st_javascript(js_code)
+
+
+if page == "🏠 Home":
     st.title("Welcome to Recovery")
     st.write("Our mission is to...")
     st.metric("Current Streak", st.session_state.get('streak', 0), "days")
     st.session_state.motivation = st.slider("How motivated are you today?", 1, 10)
     st.write(f"Your motivation: {st.session_state.motivation}")
 
-elif page=="✅ Daily Check-In":
-    if 'streak' not in st.session_state:
-        st.session_state.streak = 0
-    if 'last_checkin' not in st.session_state:
-        st.session_state.last_checkin = None
-
-    st.header("Daily Check-In") #subheader
-
-if st.button("Check In Today"):
-    today = datetime.date.today()
-    
-    if st.session_state.last_checkin == today:
-        st.warning("You have already checked in today")
-    else:
-        if st.session_state.last_checkin is None:
-            st.success("You have started a new streak!")
-            st.session_state.streak += 1
-            st.session_state.last_checkin = today
+elif page == "✅ Daily Check-In":
+    st.header("Daily Check-In")
+    if st.button("Check In Today"):
+        today = datetime.date.today()
+        if st.session_state.last_checkin == today:
+            st.warning("You have already checked in today")
         else:
-            delta = today - st.session_state.last_checkin
-            if delta.days == 1:
-                st.success("You've added another day!")
+            if st.session_state.last_checkin is None:
+                st.success("You have started a new streak!")
                 st.session_state.streak += 1
                 st.session_state.last_checkin = today
             else:
-                st.warning(f"You have missed {delta.days - 1} day(s). Streak is reset to 1.")
-                st.session_state.streak = 1
-                st.session_state.last_checkin = today
+                delta = today - st.session_state.last_checkin
+                if delta.days == 1:
+                    st.success("You've added another day!")
+                    st.session_state.streak += 1
+                    st.session_state.last_checkin = today
+                else:
+                    st.warning(f"You have missed {delta.days - 1} day(s). Streak is reset to 1.")
+                    st.session_state.streak = 1
+                    st.session_state.last_checkin = today
+            
+            # Save streak (already working)
+            st_javascript(f"localStorage.setItem('recovery_streak', '{st.session_state.streak}')")
+            if st.session_state.last_checkin is not None:
+                st_javascript(f"localStorage.setItem('recovery_last_checkin', '{st.session_state.last_checkin.isoformat()}')")
+            else:
+                st_javascript("localStorage.removeItem('recovery_last_checkin')")
         
-        # === SAVE TO LOCALSTORAGE ===
-        st_javascript(f"localStorage.setItem('recovery_streak', '{st.session_state.streak}')")
-        if st.session_state.last_checkin is not None:
-            st_javascript(f"localStorage.setItem('recovery_last_checkin', '{st.session_state.last_checkin.isoformat()}')")
-        else:
-            st_javascript("localStorage.removeItem('recovery_last_checkin')")
-    
-    st.metric("Current Streak", st.session_state.streak, "days")
-        
+        st.metric("Current Streak", st.session_state.streak, "days")
 
+elif page == "📓 Journal":
+    st.header("Journal Your Thoughts")
 
-    st.write(f"Today: {datetime.date.today()}")
-    st.write(f"Today: {st.session_state.streak}")
+    # Temporary clear button (in-memory only for now)
+    if st.button("🔴 Clear ALL Journal Data (temporary)"):
+        st.session_state.journal = []
+        st.success("Journal cleared in memory!")
+        st.rerun()
 
-    st.metric("Current Streak", st.session_state.streak, "days")
+    if 'editing_index' not in st.session_state:
+        st.session_state.editing_index = None
 
-elif page=="📓 Journal":
+    entry = st.text_area("What's on your mind today?", key="new_journal_entry")
 
-        st.header("Journal Your Thoughts")
-
-        entry = st.text_area("What's on your mind today?")
-
-        if st.button("Save Entry"):
+    if st.button("Save Entry", key="save_entry_btn"):
+        if entry.strip():
             if 'journal' not in st.session_state:
                 st.session_state.journal = []
             st.session_state.journal.append({
                 "date": str(datetime.date.today()),
-                "text": entry
+                "text": entry.strip()
             })
-            st.success("Entry Saved!")
-
-
-        st.header("Journal Entries")
-
-        if 'journal' not in st.session_state:
-            st.session_state.journal = []           # just in case it's missing
-
-        if not st.session_state.journal:
-            st.info("No journal entries yet. Add one above!")
+            save_journal()
+            st.success("Entry Saved! (in memory only)")
+            st.rerun()
         else:
-            # Use session_state for the toggle (persists across reruns)
-            if 'show_all_journal' not in st.session_state:
-                st.session_state.show_all_journal = False  # start collapsed
+            st.warning("Please write something.")
 
-            # Decide how many to show
-            if st.session_state.show_all_journal:
-                entries_to_show = st.session_state.journal
-                button_label = "Show less"
-            else:
-                entries_to_show = st.session_state.journal[-3:]   # last 3
-                button_label = "Show more"
+    st.header("Your Journal Entries")
 
-            # Show the selected entries
-            for index, item in enumerate(entries_to_show):
-                col_text, col_edit, col_delete = st.columns([8, 1, 1])
+    if not st.session_state.journal:
+        st.info("No entries yet. Add one above.")
+    else:
+        for idx, item in enumerate(st.session_state.journal):
+            col_text, col_edit, col_delete = st.columns([7, 1, 1])
 
-                with col_text:
+            with col_text:
+                if st.session_state.editing_index == idx:
+                    # === EDIT MODE ===
+                    edited_text = st.text_area(
+                        "Edit your entry",
+                        value=item["text"],
+                        key=f"edit_area_{idx}"
+                    )
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("💾 Save Changes", key=f"save_edit_{idx}", use_container_width=True):
+                            st.session_state.journal[idx]["text"] = edited_text.strip()
+                            st.session_state.editing_index = None
+                            st.success("✅ Entry updated!")
+                            st.rerun()
+                    with c2:
+                        if st.button("Cancel", key=f"cancel_edit_{idx}", use_container_width=True):
+                            st.session_state.editing_index = None
+                            st.rerun()
+                else:
+                    # Normal display mode
                     st.write(f"**{item['date']}**: {item['text']}")
 
-                with col_edit:
-                    if st.button("✏️", key=f"edit_{index}_{item.get('date', '')}", help="Edit this entry"):
-                        st.info("Edit feature coming soon...")
+            with col_edit:
+                if st.session_state.editing_index is None:  # Only allow one edit at a time
+                    if st.button("✏️", key=f"edit_btn_{idx}", help="Edit this entry"):
+                        st.session_state.editing_index = idx
+                        st.rerun()
 
-                with col_delete:
-                    if st.button("🗑️", key=f"delete_{index}_{item.get('date', '')}", help="Delete this entry"):
-                        full_journal = st.session_state.journal
+            with col_delete:
+                if st.button("🗑️", key=f"delete_{idx}", help="Delete"):
+                    del st.session_state.journal[idx]
+                    st.success("Entry deleted.")
+                    st.rerun()
 
-                        if st.session_state.show_all_journal:
-                            real_index = index
-                        else:
-                            real_index = len(full_journal) - len(entries_to_show) + index
-                        
-                        del full_journal[real_index]
-                        st.success("Entry deleted.")
-                        st.rerun()  #refreshes the page instantly
-
-            # The toggle button
-            if st.button(button_label):
-                # Flip the state — this will trigger rerun automatically
-                st.session_state.show_all_journal = not st.session_state.show_all_journal
-                st.rerun()
-
-elif page=="🎙️ Let's All Talk":
+elif page == "🎙️ Let's All Talk":
     st.write("Where you can talk with others will go here.")
 
-elif page=="📊 Progress":
+elif page == "📊 Progress":
     st.write("Your progress will go here.")
 
-elif page=="🆘 Resources":
+elif page == "🆘 Resources":
     st.write("Resources to help will go here.")
 
-elif page=="⚙️ Settings":
+elif page == "⚙️ Settings":
     st.write("Settings will go here.")
-
