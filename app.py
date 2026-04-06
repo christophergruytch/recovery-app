@@ -19,6 +19,8 @@ if 'journal' not in st.session_state:
     st.session_state.journal = []
 if 'motivation' not in st.session_state:
     st.session_state.motivation = 5
+if 'nickname' not in st.session_state:
+    st.session_state.nickname = None
 
 # Load streak and last_checkin from localStorage (this already works)
 saved_streak = st_javascript("localStorage.getItem('recovery_streak') || '0'")
@@ -35,6 +37,11 @@ if saved_last and saved_last != "null":
         st.session_state.last_checkin = None
 else:
     st.session_state.last_checkin = None
+
+
+saved_nickname = st_javascript("localStorage.getItem('recovery_nickname')")
+if saved_nickname and saved_nickname != "null" and saved_nickname.strip():
+    st.session_state.nickname = saved_nickname.strip()
 
 
 page = st.sidebar.radio(
@@ -66,6 +73,16 @@ def save_journal():
         }}
     '''
     st_javascript(js_code)
+
+
+def get_storage_key(base_key: str) -> str:
+    """Creates a private key for each user, e.g. 'recovery_journal_chrisIsCool
+    
+    Why? So different people using the same app link don't see each others data"""
+    
+    if st.session_state.nickname:
+        return f"recovery_{base_key}_{st.session_state.nickname}"
+    return f"recovery_{base_key}_temporary" #for if there's no nickname yet
 
 
 if page == "🏠 Home":
@@ -187,4 +204,41 @@ elif page == "🆘 Resources":
     st.write("Resources to help will go here.")
 
 elif page == "⚙️ Settings":
-    st.write("Settings will go here.")
+    st.header("⚙️ Settings - Make This Private To You!")
+
+    # This page for now lets the user set (or change) thier nickname
+    # Once set, all their data (streak, journal, etc.) will be saved under their own private key
+
+    if not st.session_state.nickname:
+        # Case 1: User has never set a nickname yet
+        st.info("First time here? Let's create your private space.")
+        new_nickname = st.text_input(
+            "Choose a nickname (e.g john_123)",
+            placeholder="john_123",
+            max_chars=30,
+            key="nickname_input"
+        )
+        if st.button("✅ Save My Nickname & Start Fresh!"):
+            if new_nickname.strip():
+                # clean up the nickname (remove spaces, make lowercase, keep only letters/numbers/underscores)
+                clean_nickname = "".join(c for c in new_nickname.strip().lower() if c.isalnum or c == "_")
+                if clean_nickname:
+                    st.session_state.nickname = clean_nickname
+                    # saving the nickname to localStorage so it survives refreshes
+                    st_javascript(f'localStorage.setItem("recovery_nickname", "{clean_nickname}")')
+                    st.success(f"Welcome {clean_nickname}! Your data is now private to you!")
+                    st.rerun()
+                else:
+                    st.error("Nickname must contain at least one letter or number.")
+            else:
+                st.warning("Please enter a nickname.")
+    else:
+        # Case 2: User already has a nickname
+        st.success(f"Current nickname: {st.session_state.nickname}")
+        st.caption("All your streak, journal, and future date is stored privatly in your browser under this nickname.")
+
+        if st.button("Change Nickname (this will start with fresh data)"):
+            # first clear the current nickname so the user can set a new one
+            st.session_state.nickname = None
+            st.rerun()
+    
