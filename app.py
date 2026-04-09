@@ -21,43 +21,11 @@ if 'motivation' not in st.session_state:
     st.session_state.motivation = 5
 if 'nickname' not in st.session_state:
     st.session_state.nickname = None
-
-# Load streak and last_checkin from localStorage (this already works)
-saved_streak = st_javascript("localStorage.getItem('recovery_streak') || '0'")
-try:
-    st.session_state.streak = int(saved_streak)
-except (ValueError, TypeError):
-    st.session_state.streak = 0
-
-saved_last = st_javascript("localStorage.getItem('recovery_last_checkin')")
-if saved_last and saved_last != "null":
-    try:
-        st.session_state.last_checkin = datetime.date.fromisoformat(saved_last)
-    except ValueError:
-        st.session_state.last_checkin = None
-else:
-    st.session_state.last_checkin = None
+if 'confirm_change_nickname' not in st.session_state:
+    st.session_state.confirm_change_nickname = False
 
 
-saved_nickname = st_javascript("localStorage.getItem('recovery_nickname')")
-if saved_nickname and saved_nickname != "null" and saved_nickname.strip():
-    st.session_state.nickname = saved_nickname.strip()
-
-
-page = st.sidebar.radio(
-    label="Menu",
-    options=["🏠 Home", "✅ Daily Check-In", "📓 Journal", "🎙️ Let's All Talk", "📊 Progress", "🆘 Resources", "⚙️ Settings"],
-    index=0,
-    key="nav_menu"
-)
-
-st.markdown("""
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
-    <link rel="manifest" href="manifest.json">
-""", unsafe_allow_html=True)
-
+# ----- DEFINITOINS ------
 
 def save_journal():
     """Save journal list to localStorage"""
@@ -83,6 +51,61 @@ def get_storage_key(base_key: str) -> str:
     if st.session_state.nickname:
         return f"recovery_{base_key}_{st.session_state.nickname}"
     return f"recovery_{base_key}_temporary" #for if there's no nickname yet
+
+
+# ----- END OF DEFINITOINS ------
+
+
+# Load streak, last_checkin, and nickname from localStorage
+streak_key = get_storage_key("streak")
+saved_streak = st_javascript("localStorage.getItem('recovery_streak') || '0'")
+try:
+    st.session_state.streak = int(saved_streak)
+except (ValueError, TypeError):
+    st.session_state.streak = 0
+
+
+last_key = get_storage_key("last_checkin")
+saved_last = st_javascript("localStorage.getItem('recovery_last_checkin')")
+if saved_last and saved_last != "null":
+    try:
+        st.session_state.last_checkin = datetime.date.fromisoformat(saved_last)
+    except ValueError:
+        st.session_state.last_checkin = None
+else:
+    st.session_state.last_checkin = None
+
+
+saved_nickname = st_javascript("localStorage.getItem('recovery_nickname')")
+if saved_nickname and saved_nickname != "null" and saved_nickname.strip():
+    st.session_state.nickname = saved_nickname.strip()
+
+
+
+# ----- MOBILE + PAGE SETUP ------
+
+
+page = st.sidebar.radio(
+    label="Menu",
+    options=["🏠 Home", "✅ Daily Check-In", "📓 Journal", "🎙️ Let's All Talk", "📊 Progress", "🆘 Resources", "⚙️ Settings"],
+    index=0,
+    key="nav_menu"
+)
+
+st.markdown("""
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="manifest.json">
+""", unsafe_allow_html=True)
+
+
+# ----- END OF MOBILE + PAGE SETUP ------
+
+
+
+
+# ----- MAIN PAGES AND LOGIC ------
 
 
 if page == "🏠 Home":
@@ -114,18 +137,23 @@ elif page == "✅ Daily Check-In":
                     st.session_state.streak = 1
                     st.session_state.last_checkin = today
             
-            # Save streak (already working)
-            st_javascript(f"localStorage.setItem('recovery_streak', '{st.session_state.streak}')")
+
+            # Save streak and last check-in using username
+            streak_key = get_storage_key("streak")
+            last_key = get_storage_key("last_checkin")
+
+            st_javascript(f"localStorage.setItem('{streak_key}', '{st.session_state.streak}')")
             if st.session_state.last_checkin is not None:
-                st_javascript(f"localStorage.setItem('recovery_last_checkin', '{st.session_state.last_checkin.isoformat()}')")
+                st_javascript(f"localStorage.setItem('{last_key}', '{st.session_state.last_checkin.isoformat()}')")
             else:
-                st_javascript("localStorage.removeItem('recovery_last_checkin')")
+                st_javascript(f"localStorage.removeItem('{last_key}')")
+            st.rerun()
         
         st.metric("Current Streak", st.session_state.streak, "days")
 
 elif page == "📓 Journal":
     st.header("Journal Your Thoughts")
-
+    
     # Temporary clear button (in-memory only for now)
     if st.button("🔴 Clear ALL Journal Data (temporary)"):
         st.session_state.journal = []
@@ -202,6 +230,7 @@ elif page == "📊 Progress":
 
 elif page == "🆘 Resources":
     st.write("Resources to help will go here.")
+    # st.write(f"Here is: {get_storage_key("resources")}")
 
 elif page == "⚙️ Settings":
     st.header("⚙️ Settings - Make This Private To You!")
@@ -237,8 +266,28 @@ elif page == "⚙️ Settings":
         st.success(f"Current nickname: {st.session_state.nickname}")
         st.caption("All your streak, journal, and future date is stored privatly in your browser under this nickname.")
 
-        if st.button("Change Nickname (this will start with fresh data)"):
+        if st.button("Change Nickname (this will start with fresh data)",
+                    key = "change_nickname_btn",
+                    type = "secondary"):
             # first clear the current nickname so the user can set a new one
-            st.session_state.nickname = None
+            st.session_state.confirm_change_nickname = True
             st.rerun()
-    
+        
+        if st.session_state.get('confirm_change_nickname'):
+            st.warning("Are you sure? This will clear your current nickname and date.")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Yes, Change Nickname", key = "confirm_yes_btn", type = "primary"):
+                    st.session_state.nickname = None
+                    st_javascript('localStorage.removeItem("recovery_nickname")')
+                    st.session_state.confirm_change_nickname = False
+                    st.success("Nickname cleared. Please set a new nickname.")
+                    st.rerun()
+            with col2:
+                if st.button("Cancel", key = "confirm_no_btn"):
+                    st.session_state.confirm_change_nickname = False
+                    st.rerun()
+
+
+# ----- END OF MAIN PAGES AND LOGIC ------
