@@ -23,6 +23,8 @@ if 'nickname' not in st.session_state:
     st.session_state.nickname = None
 if 'confirm_change_nickname' not in st.session_state:
     st.session_state.confirm_change_nickname = False
+if 'pending_journal_save' not in st.session_state:
+    st.session_state.pending_journal_save = False
 
 
 # ----- DEFINITOINS ------
@@ -31,10 +33,13 @@ def save_journal():
     """Save journal list to localStorage"""
     if 'journal' not in st.session_state:
         return
+
+    journal_key = get_storage_key("journal")
     journal_json = json.dumps(st.session_state.journal, ensure_ascii=False)
+    
     js_code = f'''
         try {{
-            localStorage.setItem("recovery_journal", JSON.stringify({json.dumps(journal_json)}));
+            localStorage.setItem("{journal_key}", JSON.stringify({json.dumps(journal_json)}));
             console.log("✅ Journal saved! Entries:", {len(st.session_state.journal)});
         }} catch (e) {{
             console.error("Save failed:", e);
@@ -58,7 +63,7 @@ def get_storage_key(base_key: str) -> str:
 
 # Load streak, last_checkin, and nickname from localStorage
 streak_key = get_storage_key("streak")
-saved_streak = st_javascript("localStorage.getItem('recovery_streak') || '0'")
+saved_streak = st_javascript(f"localStorage.getItem('{streak_key}') || '0'")
 try:
     st.session_state.streak = int(saved_streak)
 except (ValueError, TypeError):
@@ -66,7 +71,7 @@ except (ValueError, TypeError):
 
 
 last_key = get_storage_key("last_checkin")
-saved_last = st_javascript("localStorage.getItem('recovery_last_checkin')")
+saved_last = st_javascript(f"localStorage.getItem('{last_key}')")
 if saved_last and saved_last != "null":
     try:
         st.session_state.last_checkin = datetime.date.fromisoformat(saved_last)
@@ -76,9 +81,32 @@ else:
     st.session_state.last_checkin = None
 
 
+# journal_key = get_storage_key("journal")
+# saved_journal = st_javascript(f"localStorage.getItem('{journal_key}') || '[]'")
+# try:
+#     if save_journal and save_journal != "null":
+#         parsed = json.loads(json.loads(save_journal) if isinstance(save_journal, str) and save_journal.startswith('"') else save_journal)
+#         st.session_state.journal = parsed if isinstance(parsed, list) else []
+#     else:
+#         st.session_state.journal = []
+# except Exception:
+#     st.session_state.journal = []
+
+
 saved_nickname = st_javascript("localStorage.getItem('recovery_nickname')")
 if saved_nickname and saved_nickname != "null" and saved_nickname.strip():
     st.session_state.nickname = saved_nickname.strip()
+
+
+# to fix consistency
+# if streak is 0 but we have a last_checkin for today, it means the data got out of sync
+# clear last_checkin so the user can check in again
+# this was an edge case I ran into, where the streak and last_checkin don't save together, only one did
+today = datetime.date.today()
+if st.session_state.streak == 0 and st.session_state.last_checkin == today:
+    st.session_state.last_checkin = None
+    st_javascript(f"localStorage.removeItem('{last_key}')")
+    print("Fixed inconsistent state: cleared last checkin because streak was 0")
 
 
 
@@ -147,7 +175,7 @@ elif page == "✅ Daily Check-In":
                 st_javascript(f"localStorage.setItem('{last_key}', '{st.session_state.last_checkin.isoformat()}')")
             else:
                 st_javascript(f"localStorage.removeItem('{last_key}')")
-            st.rerun()
+            # st.rerun()
         
         st.metric("Current Streak", st.session_state.streak, "days")
 
@@ -173,7 +201,7 @@ elif page == "📓 Journal":
                 "date": str(datetime.date.today()),
                 "text": entry.strip()
             })
-            save_journal()
+            st.session_state.pending_journal_save = True
             st.success("Entry Saved! (in memory only)")
             st.rerun()
         else:
@@ -199,6 +227,7 @@ elif page == "📓 Journal":
                     with c1:
                         if st.button("💾 Save Changes", key=f"save_edit_{idx}", use_container_width=True):
                             st.session_state.journal[idx]["text"] = edited_text.strip()
+                            st.session_state.pending_journal_save = True
                             st.session_state.editing_index = None
                             st.success("✅ Entry updated!")
                             st.rerun()
@@ -219,8 +248,13 @@ elif page == "📓 Journal":
             with col_delete:
                 if st.button("🗑️", key=f"delete_{idx}", help="Delete"):
                     del st.session_state.journal[idx]
+                    st.session_state.pending_journal_save = True
                     st.success("Entry deleted.")
                     st.rerun()
+        # === PERFORM PENDING SAVE (runs after all button logic) ===
+    if st.session_state.get('pending_journal_save', False):
+        save_journal()                          # Safe to call here
+        st.session_state.pending_journal_save = False
 
 elif page == "🎙️ Let's All Talk":
     st.write("Where you can talk with others will go here.")
