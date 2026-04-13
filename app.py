@@ -17,35 +17,40 @@ if 'last_checkin' not in st.session_state:
     st.session_state.last_checkin = None
 if 'journal' not in st.session_state:
     st.session_state.journal = []
-if 'motivation' not in st.session_state:
-    st.session_state.motivation = 5
 if 'nickname' not in st.session_state:
     st.session_state.nickname = None
 if 'confirm_change_nickname' not in st.session_state:
     st.session_state.confirm_change_nickname = False
 if 'pending_journal_save' not in st.session_state:
     st.session_state.pending_journal_save = False
+if 'editing_index' not in st.session_state:
+    st.session_state.editing_index = None
+if 'journal_buffer' not in st.session_state:
+    st.session_state.journal_buffer = None
+
 
 
 # ----- DEFINITOINS ------
 
 def save_journal():
-    """Save journal list to localStorage"""
+    """Simple save - we'll call this manually at first"""
     if 'journal' not in st.session_state:
         return
-
     journal_key = get_storage_key("journal")
     journal_json = json.dumps(st.session_state.journal, ensure_ascii=False)
     
     js_code = f'''
         try {{
-            localStorage.setItem("{journal_key}", JSON.stringify({json.dumps(journal_json)}));
-            console.log("✅ Journal saved! Entries:", {len(st.session_state.journal)});
+            localStorage.setItem("{journal_key}", JSON.stringify({journal_json}));
+            console.log("Journal saved for", "{journal_key}");
+            return "success";
         }} catch (e) {{
-            console.error("Save failed:", e);
+            console.error("Save failed", e);
+            return "failed";
         }}
     '''
-    st_javascript(js_code)
+    result = st_javascript(js_code)
+    print(f"DEBUG: JS save result = {result}")
 
 
 def get_storage_key(base_key: str) -> str:
@@ -81,16 +86,7 @@ else:
     st.session_state.last_checkin = None
 
 
-# journal_key = get_storage_key("journal")
-# saved_journal = st_javascript(f"localStorage.getItem('{journal_key}') || '[]'")
-# try:
-#     if save_journal and save_journal != "null":
-#         parsed = json.loads(json.loads(save_journal) if isinstance(save_journal, str) and save_journal.startswith('"') else save_journal)
-#         st.session_state.journal = parsed if isinstance(parsed, list) else []
-#     else:
-#         st.session_state.journal = []
-# except Exception:
-#     st.session_state.journal = []
+
 
 
 saved_nickname = st_javascript("localStorage.getItem('recovery_nickname')")
@@ -139,9 +135,55 @@ st.markdown("""
 if page == "🏠 Home":
     st.title("Welcome to Recovery")
     st.write("Our mission is to...")
-    st.metric("Current Streak", st.session_state.get('streak', 0), "days")
-    st.session_state.motivation = st.slider("How motivated are you today?", 1, 10)
-    st.write(f"Your motivation: {st.session_state.motivation}")
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # streak count
+        st.metric(
+            label="Current Streak",
+            value=f"{st.session_state.get('streak', 0)} days",
+            delta="Keep it going!" if st.session_state.get('streak', 0) > 0 else None
+        )
+
+    with col2:
+        # sobriety timer
+        if st.session_state.get('sobriety_start') is None:
+            st.metric(
+                label="Days Sober",
+                value="Not set",
+                delta="Set your start date"
+            )
+        else:
+            days_sober = (datetime.date.today() - st.session_state.sobriety_start).days
+            st.metric(
+                label="Days Sober",
+                value=f"{days_sober} days",
+                delta="Good work!" if days_sober > 0 else None
+            )
+
+    st.write("-----")
+
+    # sobriety timer setup and reset, below the metrics
+    st.subheader("Sobriety Timer")
+
+    if st.session_state.get('sobriety_start') is None:
+        sobriety_date = st.date_input(
+            "When did your current sobriety period being?",
+            value=datetime.date.today(),
+            max_value=datetime.date.today(),
+            key="sobriety_start_input"
+        )
+        if st.button("Start Sobriety Timer"):
+            st.session_state.sobriety_start = sobriety_date
+            st.success("Sobriety timer started!")
+            st.rerun()
+    else:
+        if st.button("I relapsed today", type="secondary"):
+            st.session_state.sobriety_start = None
+            st.warning("Timer has been reset")
+            st.rerun()
+
 
 elif page == "✅ Daily Check-In":
     st.header("Daily Check-In")
@@ -181,19 +223,16 @@ elif page == "✅ Daily Check-In":
 
 elif page == "📓 Journal":
     st.header("Journal Your Thoughts")
-    
-    # Temporary clear button (in-memory only for now)
-    if st.button("🔴 Clear ALL Journal Data (temporary)"):
+
+    # Clear All button - useful for testing and giving users a fresh start
+    if st.button("🗑️ Clear All Journal Entries", type="secondary"):
         st.session_state.journal = []
-        st.success("Journal cleared in memory!")
+        st.success("All journal entries have been cleared.")
         st.rerun()
 
-    if 'editing_index' not in st.session_state:
-        st.session_state.editing_index = None
+    entry = st.text_area("What's on your mind today?", key="new_journal_input")
 
-    entry = st.text_area("What's on your mind today?", key="new_journal_entry")
-
-    if st.button("Save Entry", key="save_entry_btn"):
+    if st.button("💾 Save Entry", key="save_new_entry_btn", type="primary", use_container_width=True):
         if entry.strip():
             if 'journal' not in st.session_state:
                 st.session_state.journal = []
@@ -201,11 +240,9 @@ elif page == "📓 Journal":
                 "date": str(datetime.date.today()),
                 "text": entry.strip()
             })
-            st.session_state.pending_journal_save = True
-            st.success("Entry Saved! (in memory only)")
+            st.success("✅ Entry saved (in memory)")
             st.rerun()
-        else:
-            st.warning("Please write something.")
+    
 
     st.header("Your Journal Entries")
 
@@ -216,51 +253,71 @@ elif page == "📓 Journal":
             col_text, col_edit, col_delete = st.columns([7, 1, 1])
 
             with col_text:
-                if st.session_state.editing_index == idx:
-                    # === EDIT MODE ===
-                    edited_text = st.text_area(
-                        "Edit your entry",
-                        value=item["text"],
-                        key=f"edit_area_{idx}"
-                    )
+                if st.session_state.get('editing_index') == idx:
+                    # Edit mode
+                    edited_text = st.text_area("Edit your entry", value=item["text"], key=f"edit_area_{idx}")
                     c1, c2 = st.columns(2)
                     with c1:
-                        if st.button("💾 Save Changes", key=f"save_edit_{idx}", use_container_width=True):
+                        if st.button("💾 Save Changes", key=f"save_edit_{idx}"):
                             st.session_state.journal[idx]["text"] = edited_text.strip()
-                            st.session_state.pending_journal_save = True
                             st.session_state.editing_index = None
                             st.success("✅ Entry updated!")
                             st.rerun()
                     with c2:
-                        if st.button("Cancel", key=f"cancel_edit_{idx}", use_container_width=True):
+                        if st.button("Cancel", key=f"cancel_edit_{idx}"):
                             st.session_state.editing_index = None
                             st.rerun()
                 else:
-                    # Normal display mode
                     st.write(f"**{item['date']}**: {item['text']}")
 
             with col_edit:
-                if st.session_state.editing_index is None:  # Only allow one edit at a time
-                    if st.button("✏️", key=f"edit_btn_{idx}", help="Edit this entry"):
+                if st.session_state.get('editing_index') is None:
+                    if st.button("✏️", key=f"edit_btn_{idx}"):
                         st.session_state.editing_index = idx
                         st.rerun()
 
             with col_delete:
-                if st.button("🗑️", key=f"delete_{idx}", help="Delete"):
+                if st.button("🗑️", key=f"delete_btn_{idx}"):
                     del st.session_state.journal[idx]
-                    st.session_state.pending_journal_save = True
                     st.success("Entry deleted.")
                     st.rerun()
-        # === PERFORM PENDING SAVE (runs after all button logic) ===
-    if st.session_state.get('pending_journal_save', False):
-        save_journal()                          # Safe to call here
-        st.session_state.pending_journal_save = False
+    
 
 elif page == "🎙️ Let's All Talk":
     st.write("Where you can talk with others will go here.")
 
 elif page == "📊 Progress":
-    st.write("Your progress will go here.")
+    st.header("📊 Your Progress")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric(
+            label="Current Streak",
+            value=f"{st.session_state.get('streak', 0)} days"
+        )
+
+    with col2:
+        if st.session_state.get('sobriety_start') is None:
+            st.metric(
+                label="Days Sober",
+                value="Not set"
+            )
+        else:
+            days_sober = (datetime.date.today() - st.session_state.sobriety_start).days
+            st.metric(
+                label="Days Sober",
+                value=f"{days_sober} days"
+            )
+
+    total_journal = len(st.session_state.get('journal', []))
+    st.metric("Total Journal Entries", total_journal)
+
+    st.write("-----")
+
+    st.subheader("Journaling Activity")
+    st.write("Coming Soon: A chart showing how often you journal.")
+
 
 elif page == "🆘 Resources":
     st.write("Resources to help will go here.")
