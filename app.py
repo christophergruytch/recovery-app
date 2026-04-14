@@ -2,6 +2,7 @@ import streamlit as st # type: ignore
 import datetime
 from streamlit_javascript import st_javascript # type: ignore
 import json
+import pandas as pd # type: ignore
 
 st.set_page_config(
     page_title="Recovery",
@@ -21,14 +22,14 @@ if 'nickname' not in st.session_state:
     st.session_state.nickname = None
 if 'confirm_change_nickname' not in st.session_state:
     st.session_state.confirm_change_nickname = False
-if 'pending_journal_save' not in st.session_state:
-    st.session_state.pending_journal_save = False
 if 'editing_index' not in st.session_state:
     st.session_state.editing_index = None
-if 'journal_buffer' not in st.session_state:
-    st.session_state.journal_buffer = None
-
-
+if 'longest_streak' not in st.session_state:
+    st.session_state.longest_streak = 0
+if 'longest_sobriety' not in st.session_state:
+    st.session_state.longest_sobriety = 0
+if 'sobriety_start' not in st.session_state:
+    st.session_state.sobriety_start = None
 
 # ----- DEFINITOINS ------
 
@@ -63,7 +64,24 @@ def get_storage_key(base_key: str) -> str:
     return f"recovery_{base_key}_temporary" #for if there's no nickname yet
 
 
+def update_personal_bests():
+    """Update longest streak and longest sobriety on every run."""
+    # Update longest streak
+    current_streak = st.session_state.get('streak', 0)
+    if current_streak > st.session_state.get('longest_streak', 0):
+        st.session_state.longest_streak = current_streak
+
+    # Update longest sobriety
+    if st.session_state.get('sobriety_start') is not None:
+        current_days = (datetime.date.today() - st.session_state.sobriety_start).days
+        if current_days > st.session_state.get('longest_sobriety', 0):
+            st.session_state.longest_sobriety = current_days
+
+
 # ----- END OF DEFINITOINS ------
+
+# to update personal bests on every run
+update_personal_bests()
 
 
 # Load streak, last_checkin, and nickname from localStorage
@@ -84,8 +102,6 @@ if saved_last and saved_last != "null":
         st.session_state.last_checkin = None
 else:
     st.session_state.last_checkin = None
-
-
 
 
 
@@ -179,9 +195,10 @@ if page == "🏠 Home":
             st.success("Sobriety timer started!")
             st.rerun()
     else:
-        if st.button("I relapsed today", type="secondary"):
+        if st.button("I Relapsed Today", key="relapse_btn", type="secondary"):
+            # The update_personal_bests() already ran this run, so longest is already saved
             st.session_state.sobriety_start = None
-            st.warning("Timer has been reset")
+            st.warning("💔 Timer has been reset. You can set a new start date.")
             st.rerun()
 
 
@@ -207,6 +224,8 @@ elif page == "✅ Daily Check-In":
                     st.session_state.streak = 1
                     st.session_state.last_checkin = today
             
+            update_personal_bests()
+            st.rerun()
 
             # Save streak and last check-in using username
             streak_key = get_storage_key("streak")
@@ -314,6 +333,23 @@ elif page == "📊 Progress":
     st.metric("Total Journal Entries", total_journal)
 
     st.write("-----")
+    st.subheader("Personal Bests")
+
+    col3, col4 = st.columns(2)
+
+    with col3:
+        st.metric(
+            label="Longest Streak",
+            value=f"{st.session_state.get('longest_streak', 0)} days"
+        )
+
+    with col4:
+        st.metric(
+            label="Longest Sobriety Period",
+            value=f"{st.session_state.get('longest_sobriety', 0)} days"
+        )
+
+    st.write("-----")
 
     st.subheader("Journaling Activity")
     st.write("Coming Soon: A chart showing how often you journal.")
@@ -326,11 +362,8 @@ elif page == "🆘 Resources":
 elif page == "⚙️ Settings":
     st.header("⚙️ Settings - Make This Private To You!")
 
-    # This page for now lets the user set (or change) thier nickname
-    # Once set, all their data (streak, journal, etc.) will be saved under their own private key
-
-    if not st.session_state.nickname:
-        # Case 1: User has never set a nickname yet
+    if not st.session_state.get('nickname'):
+        # Case 1: No nickname set yet
         st.info("First time here? Let's create your private space.")
         new_nickname = st.text_input(
             "Choose a nickname (e.g john_123)",
@@ -340,11 +373,13 @@ elif page == "⚙️ Settings":
         )
         if st.button("✅ Save My Nickname & Start Fresh!"):
             if new_nickname.strip():
-                # clean up the nickname (remove spaces, make lowercase, keep only letters/numbers/underscores)
-                clean_nickname = "".join(c for c in new_nickname.strip().lower() if c.isalnum or c == "_")
+                clean_nickname = "".join(c for c in new_nickname.strip().lower() if c.isalnum() or c == "_")
                 if clean_nickname:
                     st.session_state.nickname = clean_nickname
-                    # saving the nickname to localStorage so it survives refreshes
+                    # Reset sobriety data for the new user
+                    st.session_state.sobriety_start = None
+                    st.session_state.longest_sobriety = 0
+                    
                     st_javascript(f'localStorage.setItem("recovery_nickname", "{clean_nickname}")')
                     st.success(f"Welcome {clean_nickname}! Your data is now private to you!")
                     st.rerun()
@@ -354,29 +389,34 @@ elif page == "⚙️ Settings":
                 st.warning("Please enter a nickname.")
     else:
         # Case 2: User already has a nickname
-        st.success(f"Current nickname: {st.session_state.nickname}")
-        st.caption("All your streak, journal, and future date is stored privatly in your browser under this nickname.")
+        st.success(f"Current nickname: **{st.session_state.nickname}**")
+        st.caption("All your streak, journal, and future data is stored privately in your browser under this nickname.")
 
-        if st.button("Change Nickname (this will start with fresh data)",
-                    key = "change_nickname_btn",
-                    type = "secondary"):
-            # first clear the current nickname so the user can set a new one
+        if st.button("Change Nickname (this will start with fresh data)", 
+                     key="change_nickname_btn", 
+                     type="secondary"):
             st.session_state.confirm_change_nickname = True
             st.rerun()
-        
-        if st.session_state.get('confirm_change_nickname'):
-            st.warning("Are you sure? This will clear your current nickname and date.")
 
+        if st.session_state.get('confirm_change_nickname'):
+            st.warning("Are you sure? This will clear your current nickname and ALL your data (streak, journal, sobriety timer).")
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("Yes, Change Nickname", key = "confirm_yes_btn", type = "primary"):
+                if st.button("Yes, Change Nickname", key="confirm_yes_btn", type="primary"):
+                    # Clear everything for the new user
                     st.session_state.nickname = None
+                    st.session_state.sobriety_start = None
+                    st.session_state.longest_sobriety = 0
+                    
                     st_javascript('localStorage.removeItem("recovery_nickname")')
+                    st_javascript(f'localStorage.removeItem("{get_storage_key("sobriety_start")}")')
+                    st_javascript(f'localStorage.removeItem("{get_storage_key("longest_sobriety")}")')
+                    
                     st.session_state.confirm_change_nickname = False
-                    st.success("Nickname cleared. Please set a new nickname.")
+                    st.success("Nickname and all data cleared. Please set a new nickname.")
                     st.rerun()
             with col2:
-                if st.button("Cancel", key = "confirm_no_btn"):
+                if st.button("Cancel", key="confirm_no_btn"):
                     st.session_state.confirm_change_nickname = False
                     st.rerun()
 
