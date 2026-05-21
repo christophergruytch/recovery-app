@@ -1,129 +1,39 @@
 import streamlit as st # type: ignore
 import datetime
-from streamlit_javascript import st_javascript # type: ignore
-import json
 import pandas as pd # type: ignore
+from streamlit_javascript import st_javascript # type: ignore
 
-st.set_page_config(
-    page_title="Recovery",
-    page_icon="🥹",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
-
-# initialization
+# ====================== SESSION STATE ======================
 if 'streak' not in st.session_state:
     st.session_state.streak = 0
 if 'last_checkin' not in st.session_state:
     st.session_state.last_checkin = None
 if 'journal' not in st.session_state:
     st.session_state.journal = []
-if 'nickname' not in st.session_state:
-    st.session_state.nickname = None
-if 'confirm_change_nickname' not in st.session_state:
-    st.session_state.confirm_change_nickname = False
+if 'sobriety_start' not in st.session_state:
+    st.session_state.sobriety_start = None
 if 'editing_index' not in st.session_state:
     st.session_state.editing_index = None
+if 'nickname' not in st.session_state:
+    st.session_state.nickname = None
 if 'longest_streak' not in st.session_state:
     st.session_state.longest_streak = 0
 if 'longest_sobriety' not in st.session_state:
     st.session_state.longest_sobriety = 0
-if 'sobriety_start' not in st.session_state:
-    st.session_state.sobriety_start = None
 
-# ----- DEFINITOINS ------
-
-def save_journal():
-    """Simple save - we'll call this manually at first"""
-    if 'journal' not in st.session_state:
-        return
-    journal_key = get_storage_key("journal")
-    journal_json = json.dumps(st.session_state.journal, ensure_ascii=False)
-    
-    js_code = f'''
-        try {{
-            localStorage.setItem("{journal_key}", JSON.stringify({journal_json}));
-            console.log("Journal saved for", "{journal_key}");
-            return "success";
-        }} catch (e) {{
-            console.error("Save failed", e);
-            return "failed";
-        }}
-    '''
-    result = st_javascript(js_code)
-    print(f"DEBUG: JS save result = {result}")
-
-
+# ====================== HELPER FUNCTIONS ======================
 def get_storage_key(base_key: str) -> str:
-    """Creates a private key for each user, e.g. 'recovery_journal_chrisIsCool
-    
-    Why? So different people using the same app link don't see each others data"""
-    
-    if st.session_state.nickname:
+    if st.session_state.get('nickname'):
         return f"recovery_{base_key}_{st.session_state.nickname}"
-    return f"recovery_{base_key}_temporary" #for if there's no nickname yet
+    return f"recovery_{base_key}_temp"
 
-
-def update_personal_bests():
-    """Update longest streak and longest sobriety on every run."""
-    # Update longest streak
-    current_streak = st.session_state.get('streak', 0)
-    if current_streak > st.session_state.get('longest_streak', 0):
-        st.session_state.longest_streak = current_streak
-
-    # Update longest sobriety
-    if st.session_state.get('sobriety_start') is not None:
-        current_days = (datetime.date.today() - st.session_state.sobriety_start).days
-        if current_days > st.session_state.get('longest_sobriety', 0):
-            st.session_state.longest_sobriety = current_days
-
-
-# ----- END OF DEFINITOINS ------
-
-# to update personal bests on every run
-update_personal_bests()
-
-
-# Load streak, last_checkin, and nickname from localStorage
-streak_key = get_storage_key("streak")
-saved_streak = st_javascript(f"localStorage.getItem('{streak_key}') || '0'")
-try:
-    st.session_state.streak = int(saved_streak)
-except (ValueError, TypeError):
-    st.session_state.streak = 0
-
-
-last_key = get_storage_key("last_checkin")
-saved_last = st_javascript(f"localStorage.getItem('{last_key}')")
-if saved_last and saved_last != "null":
-    try:
-        st.session_state.last_checkin = datetime.date.fromisoformat(saved_last)
-    except ValueError:
-        st.session_state.last_checkin = None
-else:
-    st.session_state.last_checkin = None
-
-
-
-saved_nickname = st_javascript("localStorage.getItem('recovery_nickname')")
-if saved_nickname and saved_nickname != "null" and saved_nickname.strip():
-    st.session_state.nickname = saved_nickname.strip()
-
-
-# to fix consistency
-# if streak is 0 but we have a last_checkin for today, it means the data got out of sync
-# clear last_checkin so the user can check in again
-# this was an edge case I ran into, where the streak and last_checkin don't save together, only one did
-today = datetime.date.today()
-if st.session_state.streak == 0 and st.session_state.last_checkin == today:
-    st.session_state.last_checkin = None
-    st_javascript(f"localStorage.removeItem('{last_key}')")
-    print("Fixed inconsistent state: cleared last checkin because streak was 0")
-
-
-
-# ----- MOBILE + PAGE SETUP ------
-
+# ====================== PAGE CONFIG ======================
+st.set_page_config(
+    page_title="Recovery",
+    page_icon="🥹",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
 page = st.sidebar.radio(
     label="Menu",
@@ -139,72 +49,41 @@ st.markdown("""
     <link rel="manifest" href="manifest.json">
 """, unsafe_allow_html=True)
 
-
-# ----- END OF MOBILE + PAGE SETUP ------
-
-
-
-
-# ----- MAIN PAGES AND LOGIC ------
-
-
+# ====================== HOME PAGE ======================
 if page == "🏠 Home":
     st.title("Welcome to Recovery")
-    st.write("Our mission is to...")
-    
+    st.write("Our mission is to support you on your journey toward freedom.")
+
     col1, col2 = st.columns(2)
-
     with col1:
-        # streak count
-        st.metric(
-            label="Current Streak",
-            value=f"{st.session_state.get('streak', 0)} days",
-            delta="Keep it going!" if st.session_state.get('streak', 0) > 0 else None
-        )
-
+        st.metric("Current Streak", f"{st.session_state.get('streak', 0)} days")
     with col2:
-        # sobriety timer
         if st.session_state.get('sobriety_start') is None:
-            st.metric(
-                label="Days Sober",
-                value="Not set",
-                delta="Set your start date"
-            )
+            st.metric("Days Sober", "Not set")
         else:
             days_sober = (datetime.date.today() - st.session_state.sobriety_start).days
-            st.metric(
-                label="Days Sober",
-                value=f"{days_sober} days",
-                delta="Good work!" if days_sober > 0 else None
-            )
+            st.metric("Days Sober", f"{days_sober} days")
 
-    st.write("-----")
-
-    # sobriety timer setup and reset, below the metrics
-    st.subheader("Sobriety Timer")
-
+    st.write("---")
+    st.subheader("⏱️ Sobriety Timer")
     if st.session_state.get('sobriety_start') is None:
-        sobriety_date = st.date_input(
-            "When did your current sobriety period being?",
-            value=datetime.date.today(),
-            max_value=datetime.date.today(),
-            key="sobriety_start_input"
-        )
+        sobriety_date = st.date_input("When did your current sobriety period begin?", 
+                                      value=datetime.date.today(), 
+                                      max_value=datetime.date.today())
         if st.button("Start Sobriety Timer"):
             st.session_state.sobriety_start = sobriety_date
             st.success("Sobriety timer started!")
             st.rerun()
     else:
-        if st.button("I Relapsed Today", key="relapse_btn", type="secondary"):
-            # The update_personal_bests() already ran this run, so longest is already saved
+        if st.button("I Relapsed Today", type="secondary"):
             st.session_state.sobriety_start = None
-            st.warning("💔 Timer has been reset. You can set a new start date.")
+            st.warning("Timer has been reset.")
             st.rerun()
 
-
+# ====================== DAILY CHECK-IN ======================
 elif page == "✅ Daily Check-In":
     st.header("Daily Check-In")
-    if st.button("Check In Today"):
+    if st.button("Check In Today", key="checkin_btn", type="primary", use_container_width=True):
         today = datetime.date.today()
         if st.session_state.last_checkin == today:
             st.warning("You have already checked in today")
@@ -223,35 +102,21 @@ elif page == "✅ Daily Check-In":
                     st.warning(f"You have missed {delta.days - 1} day(s). Streak is reset to 1.")
                     st.session_state.streak = 1
                     st.session_state.last_checkin = today
-            
-            update_personal_bests()
             st.rerun()
 
-            # Save streak and last check-in using username
-            streak_key = get_storage_key("streak")
-            last_key = get_storage_key("last_checkin")
+    st.metric("Current Streak", st.session_state.get('streak', 0), "days")
 
-            st_javascript(f"localStorage.setItem('{streak_key}', '{st.session_state.streak}')")
-            if st.session_state.last_checkin is not None:
-                st_javascript(f"localStorage.setItem('{last_key}', '{st.session_state.last_checkin.isoformat()}')")
-            else:
-                st_javascript(f"localStorage.removeItem('{last_key}')")
-            # st.rerun()
-        
-        st.metric("Current Streak", st.session_state.streak, "days")
-
+# ====================== JOURNAL ======================
 elif page == "📓 Journal":
     st.header("Journal Your Thoughts")
 
-    # Clear All button - useful for testing and giving users a fresh start
     if st.button("🗑️ Clear All Journal Entries", type="secondary"):
         st.session_state.journal = []
-        st.success("All journal entries have been cleared.")
+        st.success("All entries cleared.")
         st.rerun()
 
     entry = st.text_area("What's on your mind today?", key="new_journal_input")
-
-    if st.button("💾 Save Entry", key="save_new_entry_btn", type="primary", use_container_width=True):
+    if st.button("💾 Save Entry", key="save_entry_btn", type="primary"):
         if entry.strip():
             if 'journal' not in st.session_state:
                 st.session_state.journal = []
@@ -259,115 +124,89 @@ elif page == "📓 Journal":
                 "date": str(datetime.date.today()),
                 "text": entry.strip()
             })
-            st.success("✅ Entry saved (in memory)")
+            st.success("Entry saved!")
             st.rerun()
-    
 
     st.header("Your Journal Entries")
-
-    if not st.session_state.journal:
-        st.info("No entries yet. Add one above.")
+    if not st.session_state.get('journal'):
+        st.info("No entries yet.")
     else:
         for idx, item in enumerate(st.session_state.journal):
             col_text, col_edit, col_delete = st.columns([7, 1, 1])
-
             with col_text:
                 if st.session_state.get('editing_index') == idx:
-                    # Edit mode
-                    edited_text = st.text_area("Edit your entry", value=item["text"], key=f"edit_area_{idx}")
+                    edited_text = st.text_area("Edit", value=item["text"], key=f"edit_{idx}")
                     c1, c2 = st.columns(2)
                     with c1:
-                        if st.button("💾 Save Changes", key=f"save_edit_{idx}"):
+                        if st.button("Save", key=f"save_edit_{idx}"):
                             st.session_state.journal[idx]["text"] = edited_text.strip()
                             st.session_state.editing_index = None
-                            st.success("✅ Entry updated!")
                             st.rerun()
                     with c2:
-                        if st.button("Cancel", key=f"cancel_edit_{idx}"):
+                        if st.button("Cancel", key=f"cancel_{idx}"):
                             st.session_state.editing_index = None
                             st.rerun()
                 else:
                     st.write(f"**{item['date']}**: {item['text']}")
-
             with col_edit:
-                if st.session_state.get('editing_index') is None:
-                    if st.button("✏️", key=f"edit_btn_{idx}"):
-                        st.session_state.editing_index = idx
-                        st.rerun()
-
-            with col_delete:
-                if st.button("🗑️", key=f"delete_btn_{idx}"):
-                    del st.session_state.journal[idx]
-                    st.success("Entry deleted.")
+                if st.button("✏️", key=f"edit_btn_{idx}"):
+                    st.session_state.editing_index = idx
                     st.rerun()
-    
+            with col_delete:
+                if st.button("🗑️", key=f"del_{idx}"):
+                    del st.session_state.journal[idx]
+                    st.rerun()
 
+# ====================== LET'S ALL TALK ======================
 elif page == "🎙️ Let's All Talk":
-    st.write("Where you can talk with others will go here.")
+    st.write("Let's All Talk page coming soon...")
 
+# ====================== PROGRESS ======================
 elif page == "📊 Progress":
     st.header("📊 Your Progress")
 
     col1, col2 = st.columns(2)
-
     with col1:
-        st.metric(
-            label="Current Streak",
-            value=f"{st.session_state.get('streak', 0)} days"
-        )
-
+        st.metric("Current Streak", f"{st.session_state.get('streak', 0)} days")
     with col2:
         if st.session_state.get('sobriety_start') is None:
-            st.metric(
-                label="Days Sober",
-                value="Not set"
-            )
+            st.metric("Days Sober", "Not set")
         else:
-            days_sober = (datetime.date.today() - st.session_state.sobriety_start).days
-            st.metric(
-                label="Days Sober",
-                value=f"{days_sober} days"
-            )
+            days = (datetime.date.today() - st.session_state.sobriety_start).days
+            st.metric("Days Sober", f"{days} days")
 
-    total_journal = len(st.session_state.get('journal', []))
-    st.metric("Total Journal Entries", total_journal)
+    st.metric("Total Journal Entries", len(st.session_state.get('journal', [])))
 
-    st.write("-----")
     st.subheader("Personal Bests")
-
     col3, col4 = st.columns(2)
-
     with col3:
-        st.metric(
-            label="Longest Streak",
-            value=f"{st.session_state.get('longest_streak', 0)} days"
-        )
-
+        st.metric("Longest Streak", f"{st.session_state.get('longest_streak', 0)} days")
     with col4:
-        st.metric(
-            label="Longest Sobriety Period",
-            value=f"{st.session_state.get('longest_sobriety', 0)} days"
-        )
-
-    st.write("-----")
+        st.metric("Longest Sobriety", f"{st.session_state.get('longest_sobriety', 0)} days")
 
     st.subheader("Journaling Activity")
-    st.write("Coming Soon: A chart showing how often you journal.")
+    journal = st.session_state.get('journal', [])
+    if journal:
+        df = pd.DataFrame(journal)
+        df['date'] = pd.to_datetime(df['date'])
+        daily = df.groupby('date').size().reset_index(name='count')
+        st.line_chart(daily.set_index('date'))
+    else:
+        st.info("No journal entries yet.")
 
-
+# ====================== RESOURCES ======================
 elif page == "🆘 Resources":
-    st.write("Resources to help will go here.")
-    # st.write(f"Here is: {get_storage_key("resources")}")
+    st.write("Resource page coming soon...")
 
+# ====================== SETTINGS ======================
 elif page == "⚙️ Settings":
     st.header("⚙️ Settings - Make This Private To You!")
 
     if not st.session_state.get('nickname'):
-        # Case 1: No nickname set yet
         st.info("First time here? Let's create your private space.")
         new_nickname = st.text_input(
-            "Choose a nickname (e.g john_123)",
-            placeholder="john_123",
+            "Choose a nickname (e.g. chris_burbank)",
+            placeholder="chris_burbank",
             max_chars=30,
             key="nickname_input"
         )
@@ -376,49 +215,18 @@ elif page == "⚙️ Settings":
                 clean_nickname = "".join(c for c in new_nickname.strip().lower() if c.isalnum() or c == "_")
                 if clean_nickname:
                     st.session_state.nickname = clean_nickname
-                    # Reset sobriety data for the new user
-                    st.session_state.sobriety_start = None
-                    st.session_state.longest_sobriety = 0
-                    
                     st_javascript(f'localStorage.setItem("recovery_nickname", "{clean_nickname}")')
-                    st.success(f"Welcome {clean_nickname}! Your data is now private to you!")
+                    st.success(f"Welcome, {clean_nickname}! Your data is now private to you!")
                     st.rerun()
                 else:
-                    st.error("Nickname must contain at least one letter or number.")
+                    st.error("Please choose a valid nickname.")
             else:
                 st.warning("Please enter a nickname.")
     else:
-        # Case 2: User already has a nickname
         st.success(f"Current nickname: **{st.session_state.nickname}**")
-        st.caption("All your streak, journal, and future data is stored privately in your browser under this nickname.")
+        st.caption("All your data is stored privately under this name.")
 
-        if st.button("Change Nickname (this will start with fresh data)", 
-                     key="change_nickname_btn", 
-                     type="secondary"):
-            st.session_state.confirm_change_nickname = True
+        if st.button("Change Nickname (starts fresh data)", key="change_nickname_btn"):
+            st.session_state.nickname = None
+            st_javascript('localStorage.removeItem("recovery_nickname")')
             st.rerun()
-
-        if st.session_state.get('confirm_change_nickname'):
-            st.warning("Are you sure? This will clear your current nickname and ALL your data (streak, journal, sobriety timer).")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Yes, Change Nickname", key="confirm_yes_btn", type="primary"):
-                    # Clear everything for the new user
-                    st.session_state.nickname = None
-                    st.session_state.sobriety_start = None
-                    st.session_state.longest_sobriety = 0
-                    
-                    st_javascript('localStorage.removeItem("recovery_nickname")')
-                    st_javascript(f'localStorage.removeItem("{get_storage_key("sobriety_start")}")')
-                    st_javascript(f'localStorage.removeItem("{get_storage_key("longest_sobriety")}")')
-                    
-                    st.session_state.confirm_change_nickname = False
-                    st.success("Nickname and all data cleared. Please set a new nickname.")
-                    st.rerun()
-            with col2:
-                if st.button("Cancel", key="confirm_no_btn"):
-                    st.session_state.confirm_change_nickname = False
-                    st.rerun()
-
-
-# ----- END OF MAIN PAGES AND LOGIC ------
